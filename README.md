@@ -1,2 +1,2 @@
 # sps
-db schema ps
+db schema ps like R summary()
