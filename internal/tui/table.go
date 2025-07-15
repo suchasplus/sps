@@ -5,38 +5,66 @@ import (
 	"io"
 	"os"
 	"sps/internal/data"
-	"text/tabwriter"
+	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
 
-// PrintTable renders data in a well-formatted table.
-// headers is a slice of strings for the table header.
-// data is a slice of slices of strings for the table rows.
+// PrintTable renders data in a compact, box-style table, correctly handling CJK characters.
 func PrintTable(writer io.Writer, headers []string, data [][]string) {
-	tw := tabwriter.NewWriter(writer, 0, 0, 3, ' ', 0)
-
-	// Write headers
-	headerLine := ""
-	for i, h := range headers {
-		headerLine += h
-		if i < len(headers)-1 {
-			headerLine += "\t"
-		}
+	if len(headers) == 0 {
+		return
 	}
-	fmt.Fprintln(tw, headerLine)
 
-	// Write data rows
+	// 1. Calculate column widths
+	colWidths := make([]int, len(headers))
+	for i, h := range headers {
+		colWidths[i] = runewidth.StringWidth(h)
+	}
 	for _, row := range data {
-		rowLine := ""
 		for i, cell := range row {
-			rowLine += cell
-			if i < len(row)-1 {
-				rowLine += "\t"
+			width := runewidth.StringWidth(cell)
+			if width > colWidths[i] {
+				colWidths[i] = width
 			}
 		}
-		fmt.Fprintln(tw, rowLine)
 	}
 
-	tw.Flush()
+	// 2. Create border line
+	borderLine := "+"
+	for _, w := range colWidths {
+		borderLine += strings.Repeat("-", w+2) + "+" // +2 for padding
+	}
+
+	// 3. Print top border
+	fmt.Fprintln(writer, borderLine)
+
+	// 4. Print header
+	headerLine := "|"
+	for i, h := range headers {
+		headerLine += " " + pad(h, colWidths[i]) + " |"
+	}
+	fmt.Fprintln(writer, headerLine)
+
+	// 5. Print separator (which is the same as the border)
+	fmt.Fprintln(writer, borderLine)
+
+	// 6. Print data rows
+	for _, row := range data {
+		rowLine := "|"
+		for i, cell := range row {
+			rowLine += " " + pad(cell, colWidths[i]) + " |"
+		}
+		fmt.Fprintln(writer, rowLine)
+	}
+
+	// 7. Print bottom border
+	fmt.Fprintln(writer, borderLine)
+}
+
+// pad pads a string to a certain visual width with spaces.
+func pad(s string, width int) string {
+	return s + strings.Repeat(" ", width-runewidth.StringWidth(s))
 }
 
 // RenderSchema takes a slice of ColumnSchema and prints it as a table.

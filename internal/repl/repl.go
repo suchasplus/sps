@@ -1,16 +1,19 @@
 package repl
 
 import (
-	"bufio"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"sps/internal/adapter"
 	"sps/internal/analyzer"
 	"sps/internal/data"
 	"sps/internal/tui"
 	"strings"
+
+	"github.com/chzyer/readline"
 )
 
 type replContext struct {
@@ -18,40 +21,52 @@ type replContext struct {
 	dbAdapter adapter.DBAdapter
 	topN      int
 	tables    []data.Table // Cache the list of tables
+	rl        *readline.Instance
 }
 
-// Start initializes and runs the Read-Eval-Print Loop.
+// Start initializes and runs the Read-Eval-Print Loop with history and line editing.
 func Start(db *sql.DB, dbAdapter adapter.DBAdapter, topN int) error {
+	// Configure readline
+	homeDir, _ := os.UserHomeDir()
+	historyFile := filepath.Join(homeDir, ".sps_history")
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:      "sps> ",
+		HistoryFile: historyFile,
+	})
+	if err != nil {
+		return err
+	}
+	defer rl.Close()
+
 	ctx := &replContext{
 		db:        db,
 		dbAdapter: dbAdapter,
 		topN:      topN,
+		rl:        rl,
 	}
+
 	// Pre-cache the table list on start
 	if err := ctx.listTables(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not pre-cache table list: %v\n", err)
 	}
-
-	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("Welcome to the sps REPL. Type 'help' for commands or 'exit' to quit.")
 
 	for {
-		fmt.Print("sps> ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			if err.Error() == "EOF" {
-				fmt.Println("\nGoodbye!")
-				return nil
-			}
-			return err
+		line, err := ctx.rl.Readline()
+		if err == readline.ErrInterrupt { // Ctrl+C
+			continue
+		} else if err == io.EOF { // Ctrl+D
+			fmt.Println("\nGoodbye!")
+			break
 		}
 
-		input = strings.TrimSpace(input)
-		parts := strings.Fields(input)
-		if len(parts) == 0 {
+		line = strings.TrimSpace(line)
+		if len(line) == 0 {
 			continue
 		}
+		ctx.rl.SaveHistory(line)
 
+		parts := strings.Fields(line)
 		command := parts[0]
 		args := parts[1:]
 
@@ -59,6 +74,7 @@ func Start(db *sql.DB, dbAdapter adapter.DBAdapter, topN int) error {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
 	}
+	return nil
 }
 
 func (ctx *replContext) handleCommand(command string, args []string) error {
@@ -69,7 +85,6 @@ func (ctx *replContext) handleCommand(command string, args []string) error {
 		fmt.Println("Goodbye!")
 		os.Exit(0)
 	case "tables", "ls":
-		// Force a refresh
 		return ctx.listTables()
 	case "summary":
 		if len(args) == 0 {
@@ -109,7 +124,7 @@ func (ctx *replContext) listTables() error {
 	for _, t := range tables {
 		tableData = append(tableData, []string{t.Schema, t.Name})
 	}
-	tui.PrintTable(os.Stdout, headers, tableData)
+	tui.PrintTable(ctx.rl.Stdout(), headers, tableData) // Use readline's writer
 	return nil
 }
 
