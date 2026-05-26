@@ -1,4 +1,4 @@
-# sps - SQL Profile & Summary 123
+# sps - SQL Profile & Summary 1234
 
 `sps` is a command-line tool inspired by R's `summary()` function, designed for developers and data analysts to quickly profile and summarize database tables directly from the terminal.
 
